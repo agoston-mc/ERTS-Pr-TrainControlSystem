@@ -1,0 +1,7 @@
+[project]
+name = "local"
+version = "0.1.0"
+description = "Train local control system - raspberry code"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
