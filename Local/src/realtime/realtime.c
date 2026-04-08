@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <sys/msg.h>
+
 
 struct DoorControl {
     // Timing
@@ -13,6 +15,16 @@ struct DoorControl {
 
 
 int main(int argc, char**argv){
-	printf("Hello world");
+	int msqid = 12345;
+	struct message {
+        long type;
+        char text[20];
+    } msg;
+
+    long msgtyp = 0;
+	
+    ssize_t msgrcv(msqid, (void*)&msg, sizeof(msg), msgtyp, 0);
+	
+	printf("Message : %s", msg.text);
 	return 0;
 }
