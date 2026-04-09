@@ -1,20 +1,14 @@
 [project]
-name = "local"
+name = "erts-firebase"
 version = "0.1.0"
-description = "Add your description here"
+description = "Firebase wrapper scripts for the repository"
 readme = "README.md"
 
 requires-python = ">=3.12"
 dependencies = [
-    "erts-firebase",
+    "firebase-admin>=7.3.0",
 ]
-
-[project.scripts]
-local = "local:main"
 
 [build-system]
 requires = ["uv_build>=0.10.9,<0.11.0"]
 build-backend = "uv_build"
-
-[tool.uv.sources]
-erts-firebase = { workspace = true }
