@@ -1,4 +1,7 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdio.h>
+#include <sys/ipc.h>
 #include <sys/msg.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -9,53 +12,198 @@
 #include <errno.h>
 #include <string.h>
 #include <stdatomic.h>
+#include <time.h>
+#include <ctype.h>
+
+#define SHM_NAME "/id"
+#define SHM_SIZE sizeof(atomic_int)
+#define QUEUE_KEY 0x12345
+#define DEFAULT_CLOSE_MS 5000
+#define RESUME_WAIT_MS 2000
+#define POLL_INTERVAL_MS 100
+
 struct DoorControl {
-    // Timing
     uint16_t target_ms;      // Desired close time
     uint16_t elapsed_ms;     // Current progress
-    
     bool is_obstructed;      // Detection flag
-    
-    // Recovery
     uint16_t resume_wait_ms; // Pause before retry
+    bool is_open;
 };
 
-int id;
+struct message {
+    long mtype;
+    char text[128];
+};
 
-int main(int argc, char**argv){
-    
-    char buffer[4];
-    char dest[4];
-    int shm_fd = shm_open("/id", O_CREAT | O_RDWR, 0777);
-    
-    if(ftruncate(shm_fd,4)==-1){
-            printf("error ftruncate %s in line %d",strerror(errno),__LINE__);
-            exit(-1);
+static void trim_newline(char *text) {
+    size_t len = strlen(text);
+    if (len == 0) return;
+    if (text[len - 1] == '\n' || text[len - 1] == '\r')
+        text[len - 1] = '\0';
+}
+
+static bool starts_with(const char *text, const char *prefix) {
+    return strncmp(text, prefix, strlen(prefix)) == 0;
+}
+
+static unsigned parse_uint(const char *text) {
+    while (isspace((unsigned char)*text)) text++;
+    return (unsigned)strtoul(text, NULL, 10);
+}
+
+static void print_status(const struct DoorControl *door) {
+    printf("door status: %s, elapsed=%u/%u ms, obstructed=%s, resume_wait=%u ms\n",
+           door->is_open ? "opening" : "closed",
+           door->elapsed_ms,
+           door->target_ms,
+           door->is_obstructed ? "yes" : "no",
+           door->resume_wait_ms);
+}
+
+static void process_open(struct DoorControl *door, const char *arg) {
+    unsigned close_ms = DEFAULT_CLOSE_MS;
+    if (arg && *arg) {
+        close_ms = parse_uint(arg);
+        if (close_ms == 0) {
+            close_ms = DEFAULT_CLOSE_MS;
+        }
     }
-    void*d=mmap(dest,4,PROT_WRITE | PROT_READ,MAP_SHARED,shm_fd,0);
-    id=atomic_fetch_add((int*)d,1);
-    printf("%d \n",id);
-    
-    sleep(2);
-	int msqid = 12345;
-	struct message {
-        long type;
-        char text[20];
-    } msg;
+    door->target_ms = (uint16_t)close_ms;
+    door->elapsed_ms = 0;
+    door->is_open = true;
+    door->is_obstructed = false;
+    printf("received open command, will close after %u ms\n", close_ms);
+}
 
-    long msgtyp = 0;
-	
-    msgrcv(msqid,(void *)&msg, sizeof(msg), msgtyp, 0);
+static void process_close(struct DoorControl *door) {
+    if (door->is_open) {
+        door->is_open = false;
+        door->elapsed_ms = 0;
+        door->target_ms = 0;
+        printf("received close command, door is closing now\n");
+    } else {
+        printf("received close command, door already closed\n");
+    }
+}
 
-	printf("Message : %s", msg.text);
-    munmap(dest,sizeof(id));
+static void process_obstructed(struct DoorControl *door) {
+    if (!door->is_open) {
+        printf("received obstructed event, but door is not open\n");
+        return;
+    }
+    door->is_obstructed = true;
+    printf("received obstructed event, pausing door movement\n");
+}
+
+static void process_resume_wait(struct DoorControl *door, const char *arg) {
+    unsigned wait_ms = parse_uint(arg);
+    if (wait_ms == 0) {
+        wait_ms = RESUME_WAIT_MS;
+    }
+    door->resume_wait_ms = (uint16_t)wait_ms;
+    printf("resume wait set to %u ms\n", wait_ms);
+}
+
+static void sleep_ms(unsigned ms) {
+    struct timespec ts;
+    ts.tv_sec = ms / 1000;
+    ts.tv_nsec = (ms % 1000) * 1000000UL;
+    nanosleep(&ts, NULL);
+}
+
+int main(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
+
+    int shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
+    if (shm_fd == -1) {
+        perror("shm_open");
+        return 1;
+    }
+
+    if (ftruncate(shm_fd, SHM_SIZE) == -1) {
+        perror("ftruncate");
+        close(shm_fd);
+        return 1;
+    }
+
+    atomic_int *shared_count = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    if (shared_count == MAP_FAILED) {
+        perror("mmap");
+        close(shm_fd);
+        return 1;
+    }
+
+    int id = atomic_fetch_add(shared_count, 1);
+    int total_ids = atomic_load(shared_count);
+
+    int msqid = msgget((key_t)QUEUE_KEY, IPC_CREAT | 0666);
+    if (msqid == -1) {
+        perror("msgget");
+        munmap(shared_count, SHM_SIZE);
+        close(shm_fd);
+        return 1;
+    }
+
+    printf("realtime id=%d total_ids=%d listening on type=%d\n", id, total_ids, id + 1);
+
+    struct DoorControl door = {
+        .target_ms = 0,
+        .elapsed_ms = 0,
+        .is_obstructed = false,
+        .resume_wait_ms = RESUME_WAIT_MS,
+        .is_open = false,
+    };
+
+    while (true) {
+        struct message msg;
+        ssize_t received = msgrcv(msqid, &msg, sizeof(msg.text), (long)(id + 1), IPC_NOWAIT);
+        if (received >= 0) {
+            msg.text[received] = '\0';
+            trim_newline(msg.text);
+            printf("received message: '%s'\n", msg.text);
+
+            if (starts_with(msg.text, "open")) {
+                const char *arg = msg.text + strlen("open");
+                process_open(&door, arg);
+            } else if (starts_with(msg.text, "close")) {
+                process_close(&door);
+            } else if (starts_with(msg.text, "obstructed")) {
+                process_obstructed(&door);
+            } else if (starts_with(msg.text, "resume_wait")) {
+                const char *arg = msg.text + strlen("resume_wait");
+                process_resume_wait(&door, arg);
+            } else if (starts_with(msg.text, "status")) {
+                print_status(&door);
+            } else {
+                printf("unknown command: '%s'\n", msg.text);
+            }
+        } else if (errno != ENOMSG) {
+            perror("msgrcv");
+        }
+
+        if (door.is_obstructed) {
+            sleep_ms(door.resume_wait_ms);
+            door.is_obstructed = false;
+            printf("resume wait complete, continuing door action\n");
+        }
+
+        if (door.is_open) {
+            if (door.elapsed_ms < door.target_ms) {
+                sleep_ms(POLL_INTERVAL_MS);
+                door.elapsed_ms += POLL_INTERVAL_MS;
+                if (door.elapsed_ms >= door.target_ms) {
+                    door.elapsed_ms = door.target_ms;
+                    door.is_open = false;
+                    printf("door has reached target close time and is now closed\n");
+                }
+            }
+        } else {
+            usleep(POLL_INTERVAL_MS * 1000);
+        }
+    }
+
+    munmap(shared_count, SHM_SIZE);
     close(shm_fd);
-    if(shm_unlink("id")==-1){
-        if(errno == ENOENT )
-            return 0;
-        printf("error shm_unlink %s in line %d",strerror(errno),__LINE__);
-        exit(-1);
-    }
-
-	return 0;
+    return 0;
 }
