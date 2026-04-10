@@ -1,4 +1,4 @@
-import erts_firebase as fb
+import database as fb
 
 
 def main() -> None:

@@ -6,7 +6,7 @@ readme = "README.md"
 
 requires-python = ">=3.12"
 dependencies = [
-    "erts-firebase",
+    "database",
     "pyside6>=6.11.0",
 ]
 
@@ -18,4 +18,4 @@ requires = ["uv_build>=0.10.9,<0.11.0"]
 build-backend = "uv_build"
 
 [tool.uv.sources]
-erts-firebase = { workspace = true }
+database = { workspace = true }

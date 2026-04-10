@@ -1,0 +1,33 @@
+[[tracks]]
+id = "track_0"
+name = "Main Line"
+
+  [[tracks.stops]]
+  id = "stop_0"
+  name = "Stop A"
+  position = 0.0
+
+  [[tracks.stops]]
+  id = "stop_1"
+  name = "Stop B"
+  position = 0.35
+
+
+[[tracks]]
+id = "track_1"
+name = "Branch Line"
+
+  [[tracks.stops]]
+  id = "stop_0"
+  name = "Stop X"
+  position = 0.0
+
+  [[tracks.stops]]
+  id = "stop_1"
+  name = "Stop Y"
+  position = 0.5
+
+  [[tracks.stops]]
+  id = "stop_2"
+  name = "Stop Z"
+  position = 1.0

@@ -9,7 +9,7 @@ package = false
 
 [tool.uv.workspace]
 members = [
-    "Firebase",
+    "Database",
     "Local",
     "Server"
     ]

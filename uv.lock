@@ -9,7 +9,7 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "erts-firebase",
+    "database",
     "local",
     "server",
     "workspace-root",
@@ -234,9 +234,9 @@ wheels = [
 ]
 
 [[package]]
-name = "erts-firebase"
+name = "database"
 version = "0.1.0"
-source = { editable = "Firebase" }
+source = { editable = "Database" }
 dependencies = [
     { name = "firebase-admin" },
     { name = "python-dotenv" },
@@ -536,11 +536,11 @@ name = "local"
 version = "0.1.0"
 source = { editable = "Local" }
 dependencies = [
-    { name = "erts-firebase" },
+    { name = "database" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "erts-firebase", editable = "Firebase" }]
+requires-dist = [{ name = "database", editable = "Database" }]
 
 [[package]]
 name = "msgpack"
@@ -734,13 +734,13 @@ name = "server"
 version = "0.1.0"
 source = { editable = "Server" }
 dependencies = [
-    { name = "erts-firebase" },
+    { name = "database" },
     { name = "pyside6" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "erts-firebase", editable = "Firebase" },
+    { name = "database", editable = "Database" },
     { name = "pyside6", specifier = ">=6.11.0" },
 ]
 

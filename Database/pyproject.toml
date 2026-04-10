@@ -1,7 +1,7 @@
 [project]
-name = "erts-firebase"
+name = "database"
 version = "0.1.0"
-description = "Firebase wrapper scripts for the repository"
+description = "Database wrapper scripts for the repository"
 readme = "README.md"
 
 requires-python = ">=3.12"
