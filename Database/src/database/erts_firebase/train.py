@@ -5,7 +5,7 @@ from typing import Callable
 from firebase_admin import db
 
 from ._db import ref
-from .models import TrainState
+from .models import CurrentStatus, TrainState
 
 
 def _train_ref(track_id: str, train_id: str) -> db.Reference:
@@ -20,15 +20,25 @@ def set_train(track_id: str, train_id: str, state: TrainState) -> None:
 def update_train(track_id: str, train_id: str, **fields) -> None:
     """Partially update one or more fields of a train's state.
 
+    CurrentStatus enum values are automatically converted to their string
+    representation before being sent to Firebase.
+
     Example:
         update_train("t1", "train_42", stop_requested=True, current_delay=30)
+        update_train("t1", "train_42", current_status=CurrentStatus.STOPPED)
     """
+    # Coerce enum to string so Firebase always receives a plain string
+    if isinstance(fields.get("current_status"), CurrentStatus):
+        fields = {**fields, "current_status": fields["current_status"].value}
+
     _train_ref(track_id, train_id).update(fields)
 
 
 def get_train(track_id: str, train_id: str) -> TrainState | None:
     data = _train_ref(track_id, train_id).get()
-    return TrainState.from_dict(data) if data else None
+    if not isinstance(data, dict):
+        return None
+    return TrainState.from_dict(data)
 
 
 def listen_train(

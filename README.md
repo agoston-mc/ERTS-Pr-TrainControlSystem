@@ -37,6 +37,7 @@ Listens to data from all clients (train), aggregates is, and visualizes the syst
     camera_detected   bool    — onboard camera sees a person at next station
     current_delay     int     — relative seconds offset from schedule (+/-)
     progress_on_track float   — 0.0–1.0 along current track segment
+    current_status    str     — "stopped", "moving"
     next_station      str     — next station station_id 
   stations/{station_id}/
     total_delay_sum   int     — Σ delay seconds from trains that stopped here

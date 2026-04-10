@@ -5,13 +5,17 @@ name = "Main Line"
   [[tracks.stops]]
   id = "stop_0"
   name = "Stop A"
-  position = 0.0
+  position = 0.1
 
   [[tracks.stops]]
   id = "stop_1"
   name = "Stop B"
   position = 0.35
 
+  [[tracks.stops]]
+  id = "stop_2"
+  name = "Stop C"
+  position = 0.75
 
 [[tracks]]
 id = "track_1"

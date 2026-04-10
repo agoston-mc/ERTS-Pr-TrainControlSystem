@@ -1,6 +1,59 @@
 {
   "rules": {
     ".read": false,
-    ".write": false
+    ".write": false,
+
+    "tracks": {
+      "$track_id": {
+
+        "route": {
+          ".validate": "newData.isString()"
+        },
+
+        "trains": {
+          "$train_id": {
+            "stop_requested": {
+              ".validate": "newData.isBoolean()"
+            },
+            "camera_detected": {
+              ".validate": "newData.isBoolean()"
+            },
+            "current_delay": {
+              ".validate": "newData.isNumber()"
+            },
+            "progress_on_track": {
+              ".validate": "newData.isNumber() && newData.val() >= 0.0 && newData.val() <= 1.0"
+            },
+            "next_station": {
+              ".validate": "newData.isString()"
+            },
+            "current_status": {
+              ".validate": "newData.isString() && (newData.val() === 'moving' || newData.val() === 'stopped')"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+
+        "stations": {
+          "$station_id": {
+            "total_delay_sum": {
+              ".validate": "newData.isNumber()"
+            },
+            "stop_count": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+            "no_stop_count": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        }
+
+      }
+    }
   }
 }
