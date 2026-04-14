@@ -19,6 +19,11 @@ Then the decision is made on board about the stop.
 
 All data is then pushed to the global server
 
+### movement
+
+Trains while moving to 1/100th of the track they are on every tick, unless they are stopped.
+A stop is `20` ticks, with possible delay of ????
+
 
 ## Server setup
 

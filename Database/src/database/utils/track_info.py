@@ -40,6 +40,12 @@ class Track:
                 return stop
         return None
 
+    def get_stop(self, stop_id: str) -> Stop | None:
+        for stop in self.stops:
+            if stop.id == stop_id:
+                return stop
+        return None
+
 
 def _load() -> dict[str, Track]:
     with open(_DATA_FILE, "rb") as f:
