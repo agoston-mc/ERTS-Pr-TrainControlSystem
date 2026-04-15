@@ -6,7 +6,7 @@ from .train import Train
 from .stop_sensors import SensorConfig
 
 
-PUBLISH_FREQUENCY = 0
+PUBLISH_FREQUENCY = 5
 
 
 async def main():
@@ -18,9 +18,9 @@ async def main():
     ego = Train("track_0", "train_0", sensor_config)
     ego.start()
 
-    for _ in range(10):
+    while not ego.is_done:
         ego.update()
-        await asyncio.sleep(0.001)
+        await asyncio.sleep(0.1)
 
     asyncio.create_task(ego.publish())
 

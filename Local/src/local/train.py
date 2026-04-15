@@ -24,11 +24,11 @@ class Train:
         self.track: Track = track
         self._sensors = [create_sensor(kind, config, **kw) for kind, config, kw in sensors]
 
-        self._train_state: TrainState = self._make_initial_tstate()
-        self._current_stop: Stop = self._resolve_next_stop()
-
         self._progress = 0
         self._stop_countdown = 0
+
+        self._train_state: TrainState = self._make_initial_tstate()
+        self._current_stop: Stop = self._resolve_next_stop()
 
         log.info(f"Initialized train {train_id} with track {track_id}")
         log.debug(f"Sensors: {self._sensors}")
@@ -52,13 +52,11 @@ class Train:
         )
 
     def update(self) -> None:
-        cur_pos = self._train_state.progress_on_track
-
-        self._update_station(cur_pos)
+        self._update_station()
 
         if self._train_state.current_status == CurrentStatus.MOVING and self._progress < TRACK_RESOLUTION:
             self._progress += 1
-            self._train_state.progress_on_track = self._progress / TRACK_RESOLUTION
+            self._train_state.progress_on_track = self.fb_progress
 
         self._train_state.stop_requested = self.stop_requested
 
@@ -69,7 +67,7 @@ class Train:
         await loop.run_in_executor(None, set_train, self.track.id, self.id, snapshot) # todo do it with update to save writes
 
     # ------------------------------------------------------------------
-    # Sensor-derived properties  (single source of truth: the sensors)
+    # properties
     # ------------------------------------------------------------------
 
     @property
@@ -79,12 +77,20 @@ class Train:
             s.read() for s in self._sensors if isinstance(s, ButtonSensor)
         )
 
+    @property
+    def is_done(self) -> bool:
+        return self._progress >= TRACK_RESOLUTION
+
+    @property
+    def fb_progress(self) -> float:
+        return self._progress / TRACK_RESOLUTION
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _update_station(self, cur_pos: float) -> None:
-        if cur_pos < self._current_stop.position:
+    def _update_station(self) -> None:
+        if self._progress < self._current_stop.position * TRACK_RESOLUTION:
             return
 
         if self._should_stop():
@@ -98,8 +104,10 @@ class Train:
                 if self._stop_countdown == 0:
                     self._depart()
         else:
+            log.info(f"Train {self.id} passed station {self._train_state.next_station} without stopping")
+            self._advance_next_station()
             self._train_state.current_delay -= STOP_LENGTH
-            # TODO: update station delay info
+        # TODO: update station delay info
 
     def _should_stop(self) -> bool:
         """Whether the train should stop at the current station."""
@@ -120,7 +128,7 @@ class Train:
 
     def _resolve_next_stop(self) -> Stop:
         """Return the Stop object for the current next_station, or a terminus sentinel."""
-        opt = self.track.get_stop(self._train_state.next_station)
+        opt = self.track.next_stop(self.fb_progress)
         if opt is None:
             log.info(f"Train {self.id} is at the last stop")
             return Stop(id="term", name="terminus", position=1.0)
