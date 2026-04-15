@@ -1,7 +1,9 @@
+import asyncio
+import copy
 import logging
 from typing import Any
 
-from database.erts_firebase import CurrentStatus, TrainState
+from database.erts_firebase import CurrentStatus, TrainState, set_train
 from database.utils import get_track, Track, Stop
 
 from .stop_sensors import create_sensor, SensorConfig, ButtonSensor
@@ -10,7 +12,6 @@ log = logging.getLogger(__name__)
 
 TRACK_RESOLUTION = 100
 STOP_LENGTH = 20
-PUBLISH_FREQUENCY = 0
 
 
 class Train:
@@ -28,10 +29,11 @@ class Train:
 
         self._progress = 0
         self._stop_countdown = 0
-        self._pub_counter = PUBLISH_FREQUENCY
 
         log.info(f"Initialized train {train_id} with track {track_id}")
         log.debug(f"Sensors: {self._sensors}")
+
+        set_train(self.track.id, self.id, self._train_state)
 
     # ------------------------------------------------------------------
     # Public interface
@@ -60,11 +62,11 @@ class Train:
 
         self._train_state.stop_requested = self.stop_requested
 
-        if self._pub_counter == 0:
-            self._pub_counter = PUBLISH_FREQUENCY
-            pass  # TODO: publish self._train_state
-        else:
-            self._pub_counter -= 1
+    async def publish(self) -> None:
+        snapshot = copy.deepcopy(self._train_state)
+        loop = asyncio.get_running_loop()
+
+        await loop.run_in_executor(None, set_train, self.track.id, self.id, snapshot) # todo do it with update to save writes
 
     # ------------------------------------------------------------------
     # Sensor-derived properties  (single source of truth: the sensors)
@@ -107,8 +109,7 @@ class Train:
         """Leave a station: resume motion, reset all sensors."""
         self._train_state.current_status = CurrentStatus.MOVING
         for sensor in self._sensors:
-            sensor.reset()                          # clears ButtonSensor._state …
-        # stop_requested is a live property — it automatically returns False now
+            sensor.reset()
         log.info(f"Train {self.id} departing from {self._train_state.next_station}")
         self._advance_next_station()
 
