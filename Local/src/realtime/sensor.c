@@ -18,7 +18,10 @@
 #define QUEUE_KEY 0x12345
 #define OPEN_INTERVAL_MS 3000
 #define OBSTRUCT_PROBABILITY_PERCENT 30
-
+struct shmared_count {
+    atomic_int count;
+    atomic_uint_fast32_t flag;
+};
 struct message {
     long mtype;
     char text[128];
@@ -36,9 +39,9 @@ int main(int argc, char** argv) {
     (void)argv;
 
     int shm_fd_prev = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
-    atomic_int *shared_count_prev = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_prev, 0);
+    atomic_int *shared_count_prev = mmap(NULL,  sizeof(struct shmared_count), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_prev, 0);
 
-    munmap(shared_count_prev, SHM_SIZE);
+    munmap(shared_count_prev, sizeof(struct shmared_count));
     close(shm_fd_prev);
 
     int shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
@@ -53,22 +56,22 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    atomic_int *shared_count = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    struct shmared_count *shared_count = mmap(NULL,  sizeof(struct shmared_count), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (shared_count == MAP_FAILED) {
         perror("mmap");
         close(shm_fd);
         return 1;
     }
-    *shared_count = 0;
-    int id = atomic_fetch_add(shared_count, 1);
-    int total_ids = atomic_load(shared_count);
+    shared_count->count = 0;
+    int id = atomic_fetch_add(&shared_count->count, 1);
+    int total_ids = atomic_load(&shared_count->count);
 
     srand((unsigned)time(NULL) ^ getpid());
 
     int msqid = msgget((key_t)QUEUE_KEY, IPC_CREAT | 0666);
     if (msqid == -1) {
         perror("msgget");
-        munmap(shared_count, SHM_SIZE);
+        munmap(shared_count, sizeof(struct shmared_count));
         close(shm_fd);
         return 1;
     }
@@ -76,7 +79,7 @@ int main(int argc, char** argv) {
     printf("sensor id=%d total_ids=%d running open/obstruct sender\n", id, total_ids);
 
     while (true) {
-        total_ids = atomic_load(shared_count);
+        total_ids = atomic_load(&shared_count->count);
         if (total_ids <= 0) {
             total_ids = 1;
         }
@@ -104,9 +107,10 @@ int main(int argc, char** argv) {
         }
 
         sleep_ms(OPEN_INTERVAL_MS);
+        printf("closed flag: 0x%lX\n", atomic_load(&shared_count->flag));
     }
 
-    munmap(shared_count, SHM_SIZE);
+    munmap(shared_count, sizeof(struct shmared_count));
     close(shm_fd);
 
     return 0;

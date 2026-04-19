@@ -25,6 +25,11 @@
 #define RESUME_WAIT_MS 2000
 #define POLL_INTERVAL_MS 100
 
+struct shmared_count {
+    atomic_int count;
+    atomic_uint_fast32_t flag;
+};
+
 struct DoorControl {
     uint16_t target_ms;      // Desired close time
     uint16_t elapsed_ms;     // Current progress
@@ -147,26 +152,26 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    if (ftruncate(shm_fd, SHM_SIZE) == -1) {
+    if (ftruncate(shm_fd, sizeof(struct shmared_count)) == -1) {
         perror("ftruncate");
         close(shm_fd);
         return 1;
     }
 
-    atomic_int *shared_count = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    struct shmared_count *shared_count = mmap(NULL,  sizeof(struct shmared_count), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (shared_count == MAP_FAILED) {
         perror("mmap");
         close(shm_fd);
         return 1;
     }
 
-    int id = atomic_fetch_add(shared_count, 1);
-    int total_ids = atomic_load(shared_count);
+    int id = atomic_fetch_add(&shared_count->count, 1);
+    int total_ids = atomic_load(&shared_count->count);
 
     int msqid = msgget((key_t)QUEUE_KEY, IPC_CREAT | 0666);
     if (msqid == -1) {
         perror("msgget");
-        munmap(shared_count, SHM_SIZE);
+        munmap(shared_count, sizeof(struct shmared_count));
         close(shm_fd);
         return 1;
     }
@@ -191,6 +196,7 @@ int main(int argc, char **argv) {
             printf("received message: '%s'\n", msg.text);
 
             if (starts_with(msg.text, "open")) {
+                atomic_fetch_xor(&shared_count->flag, 1 << id); // Toggle flag for this sensor
                 const char *arg = msg.text + strlen("open");
                 process_open(&door, arg);
                 snprintf(message, sizeof(message), "%d:OPEN\n",id);
@@ -245,6 +251,7 @@ int main(int argc, char **argv) {
                     door.is_open = false;
                     snprintf(message, sizeof(message), "%d:CLOSED\n",id);
                     if (send(sock, message, strlen(message), 0) == -1) {
+                        atomic_fetch_xor(&shared_count->flag, 1 << id); // Toggle flag for this sensor
                         printf("door has reached target close time and is now closed, but failed to send status update\n");
                         perror("send error");
                     }
