@@ -18,6 +18,7 @@
 #define QUEUE_KEY 0x12345
 #define OPEN_INTERVAL_MS 3000
 #define OBSTRUCT_PROBABILITY_PERCENT 30
+#define PROBABILITY_EVERYONE_GOT_OFF 10
 struct shmared_count {
     atomic_int count;
     atomic_uint_fast32_t flag;
@@ -105,11 +106,15 @@ int main(int argc, char** argv) {
                 printf("sent obstructed to target_id=%d (mtype=%ld)\n", target_id, obst.mtype);
             }
         }
+        if((rand() % 100) < PROBABILITY_EVERYONE_GOT_OFF) {
+            goto everyone_got_off;
+        }
 
         sleep_ms(OPEN_INTERVAL_MS);
         printf("closed flag: 0x%lX\n", atomic_load(&shared_count->flag));
     }
-
+everyone_got_off:
+    printf("everyone got off, sending close to all sensors\n");
     munmap(shared_count, sizeof(struct shmared_count));
     close(shm_fd);
 
