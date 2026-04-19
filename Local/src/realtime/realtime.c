@@ -19,7 +19,7 @@
 
 #define SOCKET_PATH "/tmp/comms.sock" //path for UNIX domain socket
 #define SHM_NAME "/id"
-#define SHM_SIZE sizeof(atomic_int)
+#define SHM_SIZE sizeof(struct shmared_count)
 #define QUEUE_KEY 0x12345
 #define DEFAULT_CLOSE_MS 5000
 #define RESUME_WAIT_MS 2000
@@ -196,7 +196,7 @@ int main(int argc, char **argv) {
             printf("received message: '%s'\n", msg.text);
 
             if (starts_with(msg.text, "open")) {
-                atomic_fetch_xor(&shared_count->flag, 1 << id); // Toggle flag for this sensor
+                atomic_fetch_or(&shared_count->flag, (atomic_uint_fast32_t)1u << id);
                 const char *arg = msg.text + strlen("open");
                 process_open(&door, arg);
                 snprintf(message, sizeof(message), "%d:OPEN\n",id);
@@ -205,6 +205,7 @@ int main(int argc, char **argv) {
                 }
             } else if (starts_with(msg.text, "close")) {
                 process_close(&door);
+                atomic_fetch_and(&shared_count->flag, ~((atomic_uint_fast32_t)1u << id));
             } else if (starts_with(msg.text, "obstructed")) {
                 snprintf(message, sizeof(message), "%d:OBSTRUCTED\n",id);
                 if (send(sock, message, strlen(message), 0) == -1) {
@@ -249,9 +250,10 @@ int main(int argc, char **argv) {
                 if (door.elapsed_ms >= door.target_ms) {
                     door.elapsed_ms = door.target_ms;
                     door.is_open = false;
+                    atomic_fetch_and(&shared_count->flag, ~((atomic_uint_fast32_t)1u << id));
                     snprintf(message, sizeof(message), "%d:CLOSED\n",id);
+
                     if (send(sock, message, strlen(message), 0) == -1) {
-                        atomic_fetch_xor(&shared_count->flag, 1 << id); // Toggle flag for this sensor
                         printf("door has reached target close time and is now closed, but failed to send status update\n");
                         perror("send error");
                     }
