@@ -34,6 +34,13 @@ static void sleep_ms(unsigned ms) {
 int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
+
+    int shm_fd_prev = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
+    atomic_int *shared_count_prev = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd_prev, 0);
+
+    munmap(shared_count_prev, SHM_SIZE);
+    close(shm_fd_prev);
+
     int shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
     if (shm_fd == -1) {
         perror("shm_open");
@@ -52,7 +59,7 @@ int main(int argc, char** argv) {
         close(shm_fd);
         return 1;
     }
-
+    *shared_count = 0;
     int id = atomic_fetch_add(shared_count, 1);
     int total_ids = atomic_load(shared_count);
 
