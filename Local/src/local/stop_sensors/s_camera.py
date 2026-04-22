@@ -48,9 +48,13 @@ class CameraSensor(Sensor):
         self._show_on_display = bool(show_on_display)
         self._display = str(display)
         self._last_frame = None
+        self._frame_count = 0
+        log.debug("%s: CameraSensor initialized (device=%s, show_on_display=%s, display=%s)",
+                  self.config.name, self._device, self._show_on_display, self._display)
 
     def _poll(self) -> None:
         try:
+            log.debug("%s: camera poll thread started", self.config.name)
             while self._running:
                 if self._cap is None:
                     break
@@ -59,13 +63,20 @@ class CameraSensor(Sensor):
                     import time
 
                     time.sleep(0.1)
+                    log.debug("%s: camera read returned no frame", self.config.name)
                     continue
 
                 with self._lock:
                     self._last_frame = frame
+                self._frame_count += 1
+                if self._frame_count % 200 == 0:
+                    log.debug("%s: captured %d frames", self.config.name, self._frame_count)
 
                 if cv2 is not None:
                     try:
+                        # only log the first few display events to avoid spamming
+                        if self._frame_count < 3:
+                            log.debug("%s: displaying frame (frame_count=%d)", self.config.name, self._frame_count)
                         cv2.imshow(self._window_name, frame)
                         if cv2.waitKey(1) & 0xFF == ord("q"):
                             self._running = False
@@ -88,14 +99,19 @@ class CameraSensor(Sensor):
             # if requested, set the DISPLAY (and XAUTHORITY if available) so
             # launching over SSH will target the attached display on the Pi.
             if self._show_on_display:
+                log.debug("%s: show_on_display requested; current DISPLAY=%s XAUTHORITY=%s",
+                          self.config.name, os.environ.get("DISPLAY"), os.environ.get("XAUTHORITY"))
                 os.environ.setdefault("DISPLAY", self._display)
                 try:
                     home = os.path.expanduser("~")
                     xa = os.path.join(home, ".Xauthority")
                     if os.path.exists(xa):
                         os.environ.setdefault("XAUTHORITY", xa)
+                        log.debug("%s: using XAUTHORITY=%s", self.config.name, xa)
                 except Exception:
-                    pass
+                    log.debug("%s: failed to set XAUTHORITY", self.config.name, exc_info=True)
+                log.debug("%s: effective DISPLAY=%s XAUTHORITY=%s",
+                          self.config.name, os.environ.get("DISPLAY"), os.environ.get("XAUTHORITY"))
             assert cv2 is not None
             cap = cv2.VideoCapture(self._device)
 
@@ -108,6 +124,8 @@ class CameraSensor(Sensor):
                 # keep mock behaviour
                 cap.release()
                 return
+            else:
+                log.debug("%s: cv2.VideoCapture opened device %s", self.config.name, self._device)
 
             self._cap = cap
             self._running = True
