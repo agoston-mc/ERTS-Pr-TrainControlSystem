@@ -1,4 +1,5 @@
 import logging
+import os
 from threading import Lock, Thread
 from typing import Optional
 from local.stop_sensors.base import Sensor, SensorConfig
@@ -6,7 +7,7 @@ from local.stop_sensors.base import Sensor, SensorConfig
 log = logging.getLogger(__name__)
 
 
-from typing import Any, Optional
+from typing import Any
 
 try:
     import cv2
@@ -27,7 +28,15 @@ class CameraSensor(Sensor):
     using the latest frame captured in the background thread.
     """
 
-    def __init__(self, config: SensorConfig, device: int = 0, window_name: Optional[str] = None):
+    def __init__(
+        self,
+        config: SensorConfig,
+        device: int = 0,
+        window_name: Optional[str] = None,
+        *,
+        show_on_display: bool = False,
+        display: str = ":0",
+    ):
         super().__init__(config)
         self._lock = Lock()
         self._device = device
@@ -36,7 +45,8 @@ class CameraSensor(Sensor):
         self._thread: Optional[Thread] = None
         self._running = False
         self._started = False
-        # placeholder for last frame (can be used by detection later)
+        self._show_on_display = bool(show_on_display)
+        self._display = str(display)
         self._last_frame = None
 
     def _poll(self) -> None:
@@ -46,7 +56,6 @@ class CameraSensor(Sensor):
                     break
                 ret, frame = self._cap.read()
                 if not ret or frame is None:
-                    # read failed; sleep a bit and try again
                     import time
 
                     time.sleep(0.1)
@@ -55,17 +64,13 @@ class CameraSensor(Sensor):
                 with self._lock:
                     self._last_frame = frame
 
-                # display the frame if OpenCV GUI is available
                 if cv2 is not None:
                     try:
                         cv2.imshow(self._window_name, frame)
-                        # small wait to allow window to process events
                         if cv2.waitKey(1) & 0xFF == ord("q"):
-                            # pressing 'q' in the window will stop the camera loop
                             self._running = False
                             break
                     except Exception:
-                        # imshow may fail on headless systems; ignore and continue
                         pass
         except Exception:
             log.exception("%s: Error while reading camera feed", self.config.name)
@@ -80,9 +85,20 @@ class CameraSensor(Sensor):
             return
 
         try:
-            # help static analyzers: at this point cv2 is not None (we returned earlier)
+            # if requested, set the DISPLAY (and XAUTHORITY if available) so
+            # launching over SSH will target the attached display on the Pi.
+            if self._show_on_display:
+                os.environ.setdefault("DISPLAY", self._display)
+                try:
+                    home = os.path.expanduser("~")
+                    xa = os.path.join(home, ".Xauthority")
+                    if os.path.exists(xa):
+                        os.environ.setdefault("XAUTHORITY", xa)
+                except Exception:
+                    pass
             assert cv2 is not None
             cap = cv2.VideoCapture(self._device)
+
             # try to set reasonable defaults; these may be ignored by the backend
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -128,7 +144,6 @@ class CameraSensor(Sensor):
                 log.exception("%s: Error releasing camera", self.config.name)
             self._cap = None
 
-        # try to close any OpenCV windows created
         if cv2 is not None:
             try:
                 cv2.destroyWindow(self._window_name)
