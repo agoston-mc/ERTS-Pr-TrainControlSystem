@@ -1,9 +1,11 @@
 from typing import Dict
 from local.stop_sensors.base import SensorConfig, Sensor
 from local.stop_sensors.s_button import ButtonSensor
+from local.stop_sensors.s_camera import CameraSensor
 
 _REGISTRY: Dict[str, type] = {
     "button": ButtonSensor,
+    "camera": CameraSensor,
 }
 
 

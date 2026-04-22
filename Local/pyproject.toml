@@ -7,6 +7,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "database",
+    "opencv-python>=4.13.0.92",
     "sense-hat>=2.6.0",
 ]
 

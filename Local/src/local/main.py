@@ -25,6 +25,7 @@ async def main(track_name: str = "track_0", train_name: str = "train_0", publish
 
     sensor_config = [
         ("button", SensorConfig("button"), {"pull_up": True}),
+        ("camera", SensorConfig("camera"), {"device": 0}),
     ]
     ego = Train(track_name, train_name, sensor_config)
     ego.start()
