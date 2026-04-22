@@ -25,11 +25,15 @@ async def main():
 
     while not ego.is_done:
         ego.update()
-        await asyncio.sleep(1)
-        if  frame % PUBLISH_FREQUENCY == 0:
-            frame += 1
+        frame += 1
+        if frame % PUBLISH_FREQUENCY == 0:
             log.info(f"Publishing frame {frame}")
-            asyncio.create_task(ego.publish())
+            try:
+                await ego.publish()
+            except Exception:
+                log.exception("Failed to publish train state")
+
+        await asyncio.sleep(1)
 
 
     await asyncio.sleep(2)

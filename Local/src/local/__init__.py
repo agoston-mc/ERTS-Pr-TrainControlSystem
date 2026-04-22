@@ -1,6 +1,6 @@
 import asyncio
 import logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 from .main import main as _main
 
 def main() -> None:
