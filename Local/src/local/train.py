@@ -1,9 +1,10 @@
 import asyncio
 import copy
+import functools
 import logging
 from typing import Any
 
-from database.erts_firebase import CurrentStatus, TrainState, set_train
+from database.erts_firebase import CurrentStatus, TrainState, set_train, update_train
 from database.utils import get_track, Track, Stop
 
 from .stop_sensors import create_sensor, SensorConfig, ButtonSensor
@@ -30,10 +31,14 @@ class Train:
         self._train_state: TrainState = self._make_initial_tstate()
         self._current_stop: Stop = self._resolve_next_stop()
 
+        self._last_published_state: dict | None = None
+
         log.info(f"Initialized train {train_id} with track {track_id}")
         log.debug(f"Sensors: {self._sensors}")
 
         set_train(self.track.id, self.id, self._train_state)
+
+        self._last_published_state = self._train_state.to_dict()
 
     # ------------------------------------------------------------------
     # Public interface
@@ -42,6 +47,7 @@ class Train:
     def start(self) -> None:
         self._train_state = self._make_initial_tstate()
         self._current_stop = self._resolve_next_stop()
+        self._last_published_state = None
 
         for sensor in self._sensors:
             sensor.start()
@@ -62,9 +68,20 @@ class Train:
 
     async def publish(self) -> None:
         snapshot = copy.deepcopy(self._train_state)
-        loop = asyncio.get_running_loop()
+        curr = snapshot.to_dict()
 
-        await loop.run_in_executor(None, set_train, self.track.id, self.id, snapshot) # todo do it with update to save writes
+        # Determine fields that changed since last publish
+        if self._last_published_state is None:
+            fields = curr
+        else:
+            fields = {k: v for k, v in curr.items() if self._last_published_state.get(k) != v}
+        if not fields:
+            return
+
+        loop = asyncio.get_running_loop()
+        task = functools.partial(update_train, self.track.id, self.id, **fields)
+        await loop.run_in_executor(None, task)
+        self._last_published_state = curr
 
     # ------------------------------------------------------------------
     # properties
