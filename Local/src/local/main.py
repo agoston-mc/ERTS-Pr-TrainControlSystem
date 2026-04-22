@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from database.erts_firebase import init as init_erts_firebase
 
@@ -7,6 +8,8 @@ from .stop_sensors import SensorConfig
 
 
 PUBLISH_FREQUENCY = 5
+
+log = logging.getLogger(__name__)
 
 
 async def main():
@@ -18,11 +21,16 @@ async def main():
     ego = Train("track_0", "train_0", sensor_config)
     ego.start()
 
+    frame = 0
+
     while not ego.is_done:
         ego.update()
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(1)
+        if  frame % PUBLISH_FREQUENCY == 0:
+            frame += 1
+            log.info(f"Publishing frame {frame}")
+            asyncio.create_task(ego.publish())
 
-    asyncio.create_task(ego.publish())
 
     await asyncio.sleep(2)
     print(ego._train_state)
