@@ -251,8 +251,8 @@ int main(int argc, char **argv) {
                     door.elapsed_ms = door.target_ms;
                     door.is_open = false;
                     atomic_fetch_and(&shared_count->flag, ~((atomic_uint_fast32_t)1u << id));
-                    snprintf(message, sizeof(message), "%d:CLOSED\n",id);
-
+                    snprintf(message, sizeof(message), "%d:CLOSED\n %lu",id, (unsigned long)shared_count->flag);
+                    
                     if (send(sock, message, strlen(message), 0) == -1) {
                         printf("door has reached target close time and is now closed, but failed to send status update\n");
                         perror("send error");
