@@ -14,20 +14,11 @@ try:
 except Exception:
     cv2 = None  # type: Optional[Any]
     log.debug("OpenCV (cv2) not available: CameraSensor will run in mock mode.")
+from datetime import datetime, timezone
+
 
 
 class CameraSensor(Sensor):
-    """Simple camera sensor that displays a live camera feed while running.
-
-    Intended to be used with a Raspberry Pi Camera Module (via V4L2 / libcamera)
-    where the camera is exposed as a video device (e.g. /dev/video0) so OpenCV
-    can open it. If OpenCV is not available the sensor runs in mock mode.
-
-    This class does NOT perform presence detection yet; `read()` currently
-    returns False. It is structured so a detection algorithm can be added later
-    using the latest frame captured in the background thread.
-    """
-
     def __init__(
         self,
         config: SensorConfig,
@@ -49,6 +40,13 @@ class CameraSensor(Sensor):
         self._display = str(display)
         self._last_frame = None
         self._frame_count = 0
+        # directory where debug frames will be saved when read() is called
+        self._debug_save_dir = os.environ.get("CAMERA_DEBUG_SAVE_DIR", "/tmp")
+        try:
+            os.makedirs(self._debug_save_dir, exist_ok=True)
+        except Exception:
+            log.debug("%s: could not create debug save dir %s", self.config.name, self._debug_save_dir, exc_info=True)
+        self._save_count = 0
         log.debug("%s: CameraSensor initialized (device=%s, show_on_display=%s, display=%s)",
                   self.config.name, self._device, self._show_on_display, self._display)
 
@@ -136,7 +134,40 @@ class CameraSensor(Sensor):
             log.exception("%s: Failed to start CameraSensor; running in mock mode", self.config.name)
 
     def read(self) -> bool:
-        # Presence detection not implemented yet; return False for now.
+        """Return presence detection (not implemented) and save a debug frame to disk if available.
+
+        This method returns False for presence detection (placeholder) but will save the
+        last captured frame to a timestamped JPEG in the debug save directory for debugging.
+        """
+        frame = None
+        with self._lock:
+            if self._last_frame is not None:
+                # copy the frame reference; for NumPy arrays a shallow copy is fine here
+                try:
+                    frame = self._last_frame.copy()
+                except Exception:
+                    frame = self._last_frame
+
+        if frame is None:
+            log.debug("%s: read() called but no frame available", self.config.name)
+            return False
+
+        if cv2 is None:
+            log.debug("%s: read() has frame but cv2 unavailable; skipping save", self.config.name)
+            return False
+
+        # save debug image with timestamp and incremental counter
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        filename = f"camera_{self.config.name}_{ts}_{self._save_count:04d}.jpg"
+        path = os.path.join(self._debug_save_dir, filename)
+        try:
+            cv2.imwrite(path, frame)
+            log.debug("%s: saved debug frame to %s", self.config.name, path)
+            self._save_count += 1
+        except Exception:
+            log.exception("%s: failed to save debug frame to %s", self.config.name, path)
+
+        # presence detection not implemented yet
         return False
 
     async def aread(self):
