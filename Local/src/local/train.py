@@ -118,7 +118,7 @@ class Train:
             else:
                 # Already stopped — count down dwell time
                 self._stop_countdown -= 1
-                if self._stop_countdown == 0:
+                if self._stop_countdown <= 0:
                     self._depart()
         else:
             log.info(f"Train {self.id} passed station {self._train_state.next_station} without stopping")
