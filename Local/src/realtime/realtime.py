@@ -3,6 +3,8 @@ import socket
 import threading
 import subprocess
 import time
+import paho.mqtt.client as mqtt
+import json
 
 class RealTimeDoorHub:
     def __init__(self, socket_path="/tmp/comms.sock"):
@@ -140,3 +142,35 @@ class RealTimeDoorHub:
                 continue
             except OSError:
                 break
+
+    def _init_mqtt(self, broker="localhost", port=1883):
+        self.mqtt_client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+        try:
+            self.mqtt_client.connect(broker, port, 60)
+            self.mqtt_client.loop_start()
+            print("[*] MQTT Connected to broker")
+        except Exception as e:
+            print(f"[!] MQTT Connection failed: {e}")
+
+    def send_mqtt_status(self, topic="train/doors/status", message=None):
+        if not hasattr(self, 'mqtt_client'):
+            self._init_mqtt()
+        
+        payload = message or {
+            "status": "closed",
+            "timestamp": time.time(),
+            "all_doors_closed": self.all_doors_have_closed
+        }
+        
+        self.mqtt_client.publish(topic, json.dumps(payload))
+        print(f"[*] MQTT Message published to {topic}")
+
+    # Update your existing close_doors to include the call:
+    def close_doors(self) -> bool:
+        # ... existing logic ...
+        print("doors have closed")
+        self.all_doors_have_closed = True
+        
+        # New MQTT trigger
+        self.send_mqtt_status()
+        return True
