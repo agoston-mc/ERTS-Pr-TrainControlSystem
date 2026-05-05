@@ -114,7 +114,7 @@ int main(int argc, char** argv) {
         printf("closed flag: 0x%lX\n", atomic_load(&shared_count->flag));
     }
 everyone_got_off:
-    sleep(100);
+    sleep(10);
     printf("everyone got off, sending close to all sensors\n");
     munmap(shared_count, sizeof(struct shmared_count));
     close(shm_fd);
