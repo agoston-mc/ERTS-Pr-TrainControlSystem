@@ -2,8 +2,9 @@ import asyncio
 import copy
 import functools
 import logging
+import time
 from typing import Any
-
+from realtime import RealTimeDoorHub
 from database.erts_firebase import CurrentStatus, TrainState, set_train, update_train
 from database.utils import get_track, Track, Stop
 
@@ -39,7 +40,8 @@ class Train:
         set_train(self.track.id, self.id, self._train_state)
 
         self._last_published_state = self._train_state.to_dict()
-
+        self.all_doors_have_closed = True
+        self._door_hub: RealTimeDoorHub | None = None
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
@@ -105,8 +107,30 @@ class Train:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+    def check_all_doors_closed(self) -> bool:
+        """Wait for all doors to close. Returns True when all doors are closed."""
+        if self._door_hub is None:
+            self._door_hub = RealTimeDoorHub()
+            self._door_hub.start_sensor()
+            self._door_hub.start_doors(10)  # Assuming 10 doors for the train
+        
+        # Wait up to 60 seconds for doors to close
+        timeout = time.time() + 60
+        while time.time() < timeout:
+            if self._door_hub.all_doors_have_closed:
+                self._door_hub = None  # Reset for next stop
+                return True
+            time.sleep(0.5)
+        
+        log.error(f"Train {self.id} doors did not close within timeout")
+        self._door_hub = None
+        return False
 
     def _update_station(self) -> None:
+        if not self.all_doors_have_closed:
+            log.warning(f"Train {self.id} cannot depart: not all doors are closed.")
+            return
+
         if self._progress < self._current_stop.position * TRACK_RESOLUTION:
             return
 
@@ -115,6 +139,13 @@ class Train:
                 log.info(f"Train {self.id} stopped at station {self._train_state.next_station}")
                 self._stop_countdown = STOP_LENGTH
                 self._train_state.current_status = CurrentStatus.STOPPED
+                
+                self.all_doors_have_closed = self.check_all_doors_closed()
+                if not self.all_doors_have_closed:
+                    log.warning(f"Train {self.id} cannot depart: not all doors are closed.")
+                else:
+                    log.info(f"Train {self.id} all doors are closed, ready to depart.")
+                    self._depart()
             else:
                 # Already stopped — count down dwell time
                 self._stop_countdown -= 1
