@@ -10,7 +10,9 @@ package = false
 [tool.uv.workspace]
 members = [
     "Database",
-    "Local",
+#    "Local",
     "Server"
     ]
 
+[project.scripts]
+pibuild = "scripts.toggle_local:main"

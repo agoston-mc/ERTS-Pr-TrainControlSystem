@@ -8,8 +8,8 @@ requires-python = ">=3.12"
 dependencies = [
     "database",
     "opencv-python>=4.13.0.92",
+    "picamera2",
     "paho-mqtt>=2.1.0",
-    "picamzero",
     "sense-hat>=2.6.0",
 ]
 
