@@ -32,5 +32,7 @@ def test_close_doors():
     finally:
         hub.close_doors()
         print(hub.all_doors_have_closed)
+    return hub.all_doors_have_closed
 if __name__ == "__main__":
-    test_close_doors()
+    a = test_close_doors()
+    print(a)

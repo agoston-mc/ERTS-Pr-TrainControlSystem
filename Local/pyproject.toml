@@ -9,6 +9,7 @@ dependencies = [
     "database",
     "opencv-python>=4.13.0.92",
     "picamera2",
+    "paho-mqtt>=2.1.0",
     "sense-hat>=2.6.0",
 ]
 
