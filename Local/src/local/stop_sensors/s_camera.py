@@ -1,181 +1,93 @@
 import logging
-import os
+import time
 from threading import Lock, Thread
 from typing import Optional
+
+import numpy as np
+
 from local.stop_sensors.base import Sensor, SensorConfig
 
 log = logging.getLogger(__name__)
 
-
-from typing import Any
-
 try:
-    import cv2
+    from picamera2 import Picamera2
 except Exception:
-    cv2 = None  # type: Optional[Any]
-    log.debug("OpenCV (cv2) not available: CameraSensor will run in mock mode.")
-from datetime import datetime, timezone
+    Picamera2 = None
+    log.debug("picamera2 not available: CameraSensor will run in mock mode.")
 
+
+# Minimum fraction of frame pixels that must differ to count as presence.
+_DEFAULT_THRESHOLD = 0.02
+# Per-pixel intensity change to count as "different".
+_PIXEL_DIFF_THRESHOLD = 30
+# Seconds between captures.
+_POLL_INTERVAL = 0.3
 
 
 class CameraSensor(Sensor):
-    def __init__(
-        self,
-        config: SensorConfig,
-        device: int = 0,
-        window_name: Optional[str] = None,
-        *,
-        show_on_display: bool = False,
-        display: str = ":0",
-    ):
+    """Presence-detection sensor using a Raspberry Pi camera module.
+
+    Compares consecutive greyscale frames; if the fraction of significantly
+    changed pixels exceeds a threshold the sensor reports presence (True).
+    The state is sticky (latches True) until reset() is called.
+    """
+
+    def __init__(self, config: SensorConfig, **kwargs):
         super().__init__(config)
         self._lock = Lock()
-        self._device = device
-        self._window_name = window_name or f"camera-{config.name}"
-        self._cap = None
+        self._detected = False
+
+        self._threshold: float = kwargs.get("threshold", _DEFAULT_THRESHOLD)
+        self._pixel_diff: int = kwargs.get("pixel_diff", _PIXEL_DIFF_THRESHOLD)
+        self._poll_interval: float = kwargs.get("poll_interval", _POLL_INTERVAL)
+
+        self._camera: Optional[object] = None
         self._thread: Optional[Thread] = None
         self._running = False
         self._started = False
-        self._show_on_display = bool(show_on_display)
-        self._display = str(display)
-        self._last_frame = None
-        self._frame_count = 0
-        # directory where debug frames will be saved when read() is called
-        self._debug_save_dir = os.environ.get("CAMERA_DEBUG_SAVE_DIR", "/tmp")
-        try:
-            os.makedirs(self._debug_save_dir, exist_ok=True)
-        except Exception:
-            log.debug("%s: could not create debug save dir %s", self.config.name, self._debug_save_dir, exc_info=True)
-        self._save_count = 0
-        log.debug("%s: CameraSensor initialized (device=%s, show_on_display=%s, display=%s)",
-                  self.config.name, self._device, self._show_on_display, self._display)
+        self._prev_frame: Optional[np.ndarray] = None
 
-    def _poll(self) -> None:
-        try:
-            log.debug("%s: camera poll thread started", self.config.name)
-            while self._running:
-                if self._cap is None:
-                    break
-                ret, frame = self._cap.read()
-                if not ret or frame is None:
-                    import time
-
-                    time.sleep(0.1)
-                    log.debug("%s: camera read returned no frame", self.config.name)
-                    continue
-
-                with self._lock:
-                    self._last_frame = frame
-                self._frame_count += 1
-                if self._frame_count % 200 == 0:
-                    log.debug("%s: captured %d frames", self.config.name, self._frame_count)
-
-                if cv2 is not None:
-                    try:
-                        # only log the first few display events to avoid spamming
-                        if self._frame_count < 3:
-                            log.debug("%s: displaying frame (frame_count=%d)", self.config.name, self._frame_count)
-                        cv2.imshow(self._window_name, frame)
-                        if cv2.waitKey(1) & 0xFF == ord("q"):
-                            self._running = False
-                            break
-                    except Exception:
-                        pass
-        except Exception:
-            log.exception("%s: Error while reading camera feed", self.config.name)
+    # ------------------------------------------------------------------
+    # Sensor interface
+    # ------------------------------------------------------------------
 
     def start(self) -> None:
         if self._started:
             return
         self._started = True
 
-        if cv2 is None:
-            log.info("%s: CameraSensor started in mock mode (cv2 unavailable)", self.config.name)
-            return
-
-        try:
-            # if requested, set the DISPLAY (and XAUTHORITY if available) so
-            # launching over SSH will target the attached display on the Pi.
-            if self._show_on_display:
-                log.debug("%s: show_on_display requested; current DISPLAY=%s XAUTHORITY=%s",
-                          self.config.name, os.environ.get("DISPLAY"), os.environ.get("XAUTHORITY"))
-                os.environ.setdefault("DISPLAY", self._display)
-                try:
-                    home = os.path.expanduser("~")
-                    xa = os.path.join(home, ".Xauthority")
-                    if os.path.exists(xa):
-                        os.environ.setdefault("XAUTHORITY", xa)
-                        log.debug("%s: using XAUTHORITY=%s", self.config.name, xa)
-                except Exception:
-                    log.debug("%s: failed to set XAUTHORITY", self.config.name, exc_info=True)
-                log.debug("%s: effective DISPLAY=%s XAUTHORITY=%s",
-                          self.config.name, os.environ.get("DISPLAY"), os.environ.get("XAUTHORITY"))
-            assert cv2 is not None
-            cap = cv2.VideoCapture(self._device)
-
-            # try to set reasonable defaults; these may be ignored by the backend
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-
-            if not cap.isOpened():
-                log.warning("%s: cv2.VideoCapture failed to open device %s", self.config.name, self._device)
-                # keep mock behaviour
-                cap.release()
+        if Picamera2 is not None:
+            try:
+                self._camera = Picamera2()
+                self._camera.configure(
+                    self._camera.create_still_configuration(
+                        main={"size": (320, 240), "format": "RGB888"}
+                    )
+                )
+                self._camera.start()
+                self._running = True
+                self._thread = Thread(
+                    target=self._poll, daemon=True, name=f"{self.config.name}-camera"
+                )
+                self._thread.start()
+                log.info("%s: CameraSensor started with picamera2", self.config.name)
                 return
-            else:
-                log.debug("%s: cv2.VideoCapture opened device %s", self.config.name, self._device)
+            except Exception:
+                log.exception(
+                    "%s: Failed to initialize camera; falling back to mock mode.",
+                    self.config.name,
+                )
 
-            self._cap = cap
-            self._running = True
-            self._thread = Thread(target=self._poll, daemon=True, name=f"{self.config.name}-camera")
-            self._thread.start()
-            log.info("%s: CameraSensor started and displaying feed", self.config.name)
-        except Exception:
-            log.exception("%s: Failed to start CameraSensor; running in mock mode", self.config.name)
+        log.info("%s: CameraSensor started in mock mode (always False)", self.config.name)
 
     def read(self) -> bool:
-        """Return presence detection (not implemented) and save a debug frame to disk if available.
-
-        This method returns False for presence detection (placeholder) but will save the
-        last captured frame to a timestamped JPEG in the debug save directory for debugging.
-        """
-        frame = None
         with self._lock:
-            if self._last_frame is not None:
-                # copy the frame reference; for NumPy arrays a shallow copy is fine here
-                try:
-                    frame = self._last_frame.copy()
-                except Exception:
-                    frame = self._last_frame
-
-        if frame is None:
-            log.debug("%s: read() called but no frame available", self.config.name)
-            return False
-
-        if cv2 is None:
-            log.debug("%s: read() has frame but cv2 unavailable; skipping save", self.config.name)
-            return False
-
-        # save debug image with timestamp and incremental counter
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-        filename = f"camera_{self.config.name}_{ts}_{self._save_count:04d}.jpg"
-        path = os.path.join(self._debug_save_dir, filename)
-        try:
-            cv2.imwrite(path, frame)
-            log.debug("%s: saved debug frame to %s", self.config.name, path)
-            self._save_count += 1
-        except Exception:
-            log.exception("%s: failed to save debug frame to %s", self.config.name, path)
-
-        # presence detection not implemented yet
-        return False
-
-    async def aread(self):
-        return self.read()
+            return self._detected
 
     def reset(self) -> None:
-        # nothing to reset for now
-        return None
+        with self._lock:
+            self._detected = False
+            log.info("%s: CameraSensor reset -> state cleared", self.config.name)
 
     def stop(self) -> None:
         if not self._started:
@@ -185,23 +97,51 @@ class CameraSensor(Sensor):
         if self._thread is not None:
             self._thread.join(timeout=2)
             self._thread = None
-
-        if self._cap is not None:
+        if self._camera is not None:
             try:
-                self._cap.release()
+                self._camera.stop()
+                self._camera.close()
             except Exception:
-                log.exception("%s: Error releasing camera", self.config.name)
-            self._cap = None
-
-        if cv2 is not None:
-            try:
-                cv2.destroyWindow(self._window_name)
-            except Exception:
-                try:
-                    cv2.destroyAllWindows()
-                except Exception:
-                    pass
-
+                pass
+            self._camera = None
+        self._prev_frame = None
         log.info("%s: CameraSensor stopped", self.config.name)
 
+    async def aread(self) -> bool:
+        return self.read()
+
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
+    def _poll(self) -> None:
+        while self._running:
+            try:
+                frame = self._capture_grey()
+                if self._prev_frame is not None:
+                    diff = np.abs(frame.astype(np.int16) - self._prev_frame.astype(np.int16))
+                    changed_ratio = np.mean(diff > self._pixel_diff)
+                    if changed_ratio >= self._threshold:
+                        with self._lock:
+                            if not self._detected:
+                                log.debug(
+                                    "%s: presence detected (%.1f%% changed)",
+                                    self.config.name,
+                                    changed_ratio * 100,
+                                )
+                            self._detected = True
+                self._prev_frame = frame
+            except Exception:
+                log.exception("%s: Error during camera poll", self.config.name)
+            time.sleep(self._poll_interval)
+
+    def _capture_grey(self) -> np.ndarray:
+        """Capture a frame and convert to greyscale."""
+        frame = self._camera.capture_array()  # (H, W, 3) uint8
+        grey = (
+            0.2989 * frame[:, :, 0]
+            + 0.5870 * frame[:, :, 1]
+            + 0.1140 * frame[:, :, 2]
+        ).astype(np.uint8)
+        return grey
 
