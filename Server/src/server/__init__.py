@@ -1,10 +1,7 @@
-import database as fb
+import logging
+logging.basicConfig(level=logging.INFO)
+from .main import main as _main
 
 
-def main() -> None:
-    fb.init()  # reads FIREBASE_SERVICE_ACCOUNT and FIREBASE_URL from .env
-    reg = fb.listen_trains("track_1", lambda path, data: print(path, data))
-    input("Press Enter to stop...\n")
-    reg.close()
-
-
+def main():
+    _main()
