@@ -7,7 +7,7 @@ from typing import Any
 from database.erts_firebase import CurrentStatus, TrainState, set_train, update_train
 from database.utils import get_track, Track, Stop
 
-from .stop_sensors import create_sensor, SensorConfig, ButtonSensor
+from .stop_sensors import create_sensor, SensorConfig, ButtonSensor, CameraSensor
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +65,7 @@ class Train:
             self._train_state.progress_on_track = self.fb_progress
 
         self._train_state.stop_requested = self.stop_requested
+        self._train_state.camera_detected = self.camera_detected
 
     async def publish(self) -> None:
         snapshot = copy.deepcopy(self._train_state)
@@ -92,6 +93,13 @@ class Train:
         """True if any button sensor is currently latched."""
         return any(
             s.read() for s in self._sensors if isinstance(s, ButtonSensor)
+        )
+
+    @property
+    def camera_detected(self) -> bool:
+        """True if any camera sensor currently detects presence."""
+        return any(
+            s.read() for s in self._sensors if isinstance(s, CameraSensor)
         )
 
     @property
