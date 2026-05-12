@@ -98,6 +98,7 @@ class RealTimeDoorHub:
         # 5. Final Output Requirement
         print("doors have closed")
         self.all_doors_have_closed = True
+        self.send_mqtt_status()
         return True
 
 
@@ -120,7 +121,7 @@ class RealTimeDoorHub:
         # Start background threads
         threading.Thread(target=self._listen_for_doors, daemon=True).start()
         threading.Thread(target=self._monitor_logic, daemon=True).start()
-        
+        self.send_mqtt_status_doors_can_open()  # Notify that doors can open    
         print(f"[*] Launching {num_doors} doors...")
         for i in range(1, num_doors + 1):
             self.door_processes.append(subprocess.Popen(["./realtime.out", str(i)]))
@@ -164,13 +165,15 @@ class RealTimeDoorHub:
         
         self.mqtt_client.publish(topic, json.dumps(payload))
         print(f"[*] MQTT Message published to {topic}")
-
-    # Update your existing close_doors to include the call:
-    def close_doors(self) -> bool:
-        # ... existing logic ...
-        print("doors have closed")
-        self.all_doors_have_closed = True
+    
+    def send_mqtt_status_doors_can_open(self, topic="train/doors/status", message=None):
+        if not hasattr(self, 'mqtt_client'):
+            self._init_mqtt()
         
-        # New MQTT trigger
-        self.send_mqtt_status()
-        return True
+        payload = {
+            "status": "opened",
+            "timestamp": time.time(),
+            "all_doors_closed": self.all_doors_have_closed
+        }
+        self.mqtt_client.publish(topic, json.dumps(payload))
+        print(f"[*] MQTT Message published to {topic}")
