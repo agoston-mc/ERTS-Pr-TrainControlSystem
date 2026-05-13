@@ -10,7 +10,7 @@ package = false
 [tool.uv.workspace]
 members = [
     "Database",
-#    "Local",
+    "Local",
     "Server"
     ]
 
