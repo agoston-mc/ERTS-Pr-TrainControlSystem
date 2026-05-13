@@ -6,6 +6,7 @@ import time
 from typing import Any
 from realtime import RealTimeDoorHub
 from database.erts_firebase import CurrentStatus, TrainState, set_train, update_train
+from database.erts_firebase.station import record_stop, record_pass
 from database.utils import get_track, Track, Stop
 
 from .stop_sensors import create_sensor, SensorConfig, ButtonSensor, CameraSensor
@@ -161,20 +162,23 @@ class Train:
                     self._depart()
         else:
             log.info(f"Train {self.id} passed station {self._train_state.next_station} without stopping")
+            passed_station = self._train_state.next_station
             self._advance_next_station()
             self._train_state.current_delay -= STOP_LENGTH
-        # TODO: update station delay info
+            record_pass(self.track.id, passed_station, self._train_state.current_delay)
 
     def _should_stop(self) -> bool:
         """Whether the train should stop at the current station."""
         return self.stop_requested or self._train_state.camera_detected
 
     def _depart(self) -> None:
-        """Leave a station: resume motion, reset all sensors."""
+        """Leave a station: resume motion, reset all sensors, and record the stop."""
+        departing_station = self._train_state.next_station
         self._train_state.current_status = CurrentStatus.MOVING
         for sensor in self._sensors:
             sensor.reset()
-        log.info(f"Train {self.id} departing from {self._train_state.next_station}")
+        log.info(f"Train {self.id} departing from {departing_station}")
+        record_stop(self.track.id, departing_station, self._train_state.current_delay)
         self._advance_next_station()
 
     def _advance_next_station(self) -> None:
