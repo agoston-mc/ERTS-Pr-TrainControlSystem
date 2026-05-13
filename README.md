@@ -1,5 +1,7 @@
 # ERTS-Pr-TrainControlSystem
 
+SETUP INSTRUCTIONS AT THE BOTTOM
+
 The setup is that a trains run freely on set tracks. 
 They stop at stations only if there is someone at the station, detected by a camera on board, or if there was anyone pressing the stop request button beforehand. 
 Before departure the doors close, and if anyone gets stuck there, it gets interrupted, delaying the train. 
@@ -50,6 +52,32 @@ Listens to data from all clients (train), aggregates is, and visualizes the syst
     no_stop_count     int     — total pass-throughs (no stop needed)
 ```
 
+## Setup for running the app
+
+Generate firebase token for the databse to be used:
+1. go to Firebase Console -> Project to use
+2. go to Project Settings -> Service accounts
+3. Generate new key and download the .json file
+
+Set the .env variables:
+```
+FIREBASE_SERVICE_ACCOUNT=<.json token>
+FIREBASE_URL=<database url>
+```
+
+These two files should be in project root
+
+Python package management is handled via astral UV
+(To run the GUI app you need to either run from linux, or comment out Local from the project root level pyproject.toml, from the workspace members)
+
+launching is done via `uv run`
+```shell
+# to run the trains - raspberry local code
+uv run --package local local <options>
+
+# to run the GUI - server code
+uv run --package server server
+```
 
 
 
